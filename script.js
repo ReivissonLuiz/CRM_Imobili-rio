@@ -1094,8 +1094,9 @@ async function baixarUsuariosNuvem() {
     if (!supabaseClient) return;
 
     const { data, error } = await supabaseClient
-        .from('usuarios_com_email')
-        .select('*');
+        .from('profiles')
+        .select('*')
+        .order('criado_em', { ascending: false });
 
     if (error) {
         console.error('Erro ao carregar usuários:', error.message);
