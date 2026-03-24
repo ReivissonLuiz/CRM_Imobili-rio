@@ -1094,19 +1094,18 @@ async function baixarUsuariosNuvem() {
     if (!supabaseClient) return;
 
     const { data, error } = await supabaseClient
-        .from('profiles')
-        .select('id, nome, role, cpf, data_nascimento, criado_em')
-        .order('criado_em', { ascending: false });
+        .from('usuarios_com_email')
+        .select('*');
 
     if (error) {
-        console.error('Erro ao carregar perfis:', error.message);
+        console.error('Erro ao carregar usuários:', error.message);
         return;
     }
 
     const usuarios = (data || []).map(item => ({
         id: item.id,
         nome: item.nome || 'Usuário',
-        email: '-',
+        email: item.email || '-',
         cpf: item.cpf || '',
         dataNascimento: item.data_nascimento || '',
         role: item.role || 'corretor',
