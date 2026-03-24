@@ -842,11 +842,11 @@ function configurarEventosApp() {
         
         try {
             await alterarRoleUsuario(usuarioId, novoRole);
-            mostrarMensagem('✓ Permissão alterada!', 'sucesso');
+            mostrarMensagemUsuarios('✓ Permissão alterada!', 'sucesso');
             fecharModalUsuario();
             atualizarListaUsuarios();
         } catch (erro) {
-            mostrarMensagem('✗ ' + erro.message, 'erro');
+            mostrarMensagemUsuarios('✗ ' + erro.message, 'erro');
         }
     });
 
@@ -859,11 +859,11 @@ function configurarEventosApp() {
 
         try {
             await excluirUsuario(usuarioId);
-            mostrarMensagem('✓ Usuário excluído com sucesso!', 'sucesso');
+            mostrarMensagemUsuarios('✓ Usuário excluído com sucesso!', 'sucesso');
             fecharModalUsuario();
             atualizarListaUsuarios();
         } catch (erro) {
-            mostrarMensagem('✗ ' + erro.message, 'erro');
+            mostrarMensagemUsuarios('✗ ' + erro.message, 'erro');
         }
     });
 
@@ -878,27 +878,77 @@ function configurarEventosApp() {
         const dataNascimento = document.getElementById('novo-usr-data').value;
         
         if (!nome || !email || !senha) {
-            mostrarMensagem('✗ Preencha Nome, Email e Senha', 'erro');
-            return;
-        }
-        
-        if (supabaseClient) {
-            mostrarMensagem('✗ Crie novos usuários em Supabase > Authentication > Users para manter a segurança.', 'erro');
+            mostrarMensagemUsuarios('✗ Preencha Nome, Email e Senha', 'erro');
             return;
         }
 
-        try {
-            const resultado = criarContaAdmin(nome, email, cpf, dataNascimento, senha, role);
-            if (resultado.sucesso) {
-                mostrarMensagem('✓ Usuário criado com sucesso!', 'sucesso');
-                mostrarToast('Membro criado com sucesso!');
-                document.getElementById('form-novo-usuario').reset();
-                atualizarListaUsuarios();
-            } else {
-                mostrarMensagem('✗ Erro: ' + resultado.erro, 'erro');
+        // Verificar se é admin
+        if (!usuarioLogado || usuarioLogado.role !== 'admin') {
+            mostrarMensagemUsuarios('✗ Apenas administradores podem criar usuários', 'erro');
+            return;
+        }
+
+        // Validar email
+        if (!email.includes('@')) {
+            mostrarMensagemUsuarios('✗ Email inválido', 'erro');
+            return;
+        }
+
+        // Validar senha (mínimo 6 caracteres)
+        if (senha.length < 6) {
+            mostrarMensagemUsuarios('✗ Senha deve ter no mínimo 6 caracteres', 'erro');
+            return;
+        }
+
+        if (supabaseClient) {
+            try {
+                mostrarMensagemUsuarios('Criando usuário...', 'info');
+                
+                const { data, error } = await supabaseClient.rpc('criar_usuario_novo', {
+                    p_email: email,
+                    p_senha: senha,
+                    p_nome: nome,
+                    p_role: role,
+                    p_cpf: cpf || null,
+                    p_data_nascimento: dataNascimento || null
+                });
+
+                if (error) {
+                    console.error('Erro RPC:', error);
+                    if (error.message.includes('duplicate')) {
+                        mostrarMensagemUsuarios('✗ Este email já está cadastrado', 'erro');
+                    } else {
+                        mostrarMensagemUsuarios('✗ Erro: ' + error.message, 'erro');
+                    }
+                    return;
+                }
+
+                if (data && data.sucesso) {
+                    mostrarMensagemUsuarios('✓ Usuário criado com sucesso!', 'sucesso');
+                    mostrarToast('Usuário ' + nome + ' criado!');
+                    document.getElementById('form-novo-usuario').reset();
+                    setTimeout(() => atualizarListaUsuarios(), 1000);
+                } else {
+                    mostrarMensagemUsuarios('✗ Erro ao criar usuário: ' + (data?.erro || 'desconhecido'), 'erro');
+                }
+            } catch (erro) {
+                console.error('Erro ao criar usuário:', erro);
+                mostrarMensagemUsuarios('✗ Erro ao criar usuário: ' + erro.message, 'erro');
             }
-        } catch (erro) {
-            mostrarMensagem('✗ Erro ao criar usuário', 'erro');
+        } else {
+            // Fallback para localStorage (modo local)
+            try {
+                const resultado = criarContaAdmin(nome, email, cpf, dataNascimento, senha, role);
+                if (resultado.sucesso) {
+                    mostrarMensagemUsuarios('✓ Usuário criado com sucesso!', 'sucesso');
+                    document.getElementById('form-novo-usuario').reset();
+                    atualizarListaUsuarios();
+                } else {
+                    mostrarMensagemUsuarios('✗ Erro: ' + resultado.erro, 'erro');
+                }
+            } catch (erro) {
+                mostrarMensagemUsuarios('✗ Erro ao criar usuário', 'erro');
+            }
         }
     });
 
@@ -1525,6 +1575,21 @@ function mostrarMensagem(texto, tipo = 'sucesso') {
     setTimeout(() => {
         el.className = 'mensagem';
     }, 4000);
+}
+
+function mostrarMensagemUsuarios(texto, tipo = 'sucesso') {
+    const el = document.getElementById('mensagem-usuarios');
+    if (!el) {
+        mostrarToast(texto.replace(/^✗\s*/, '').replace(/^✓\s*/, ''));
+        return;
+    }
+
+    el.textContent = texto;
+    el.className = `mensagem ${tipo}`;
+
+    setTimeout(() => {
+        el.className = 'mensagem';
+    }, 5000);
 }
 
 function mostrarToast(texto) {
