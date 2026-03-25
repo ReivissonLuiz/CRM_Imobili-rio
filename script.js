@@ -247,15 +247,44 @@ function criarContaAdmin(nome, email, cpf, dataNascimento, senha, role) {
     return { sucesso: true, usuario: novoUsuario };
 }
 
+function traduzirErroLoginSupabase(erro) {
+    const msg = (erro?.message || '').toLowerCase();
+
+    if (!msg) return 'Falha ao autenticar. Tente novamente.';
+    if (msg.includes('invalid login credentials')) return 'Email ou senha inválidos.';
+    if (msg.includes('email not confirmed')) return 'Email ainda não confirmado. Verifique sua caixa de entrada.';
+    if (msg.includes('database error querying schema')) {
+        return 'Usuário com cadastro inconsistente no banco. Peça ao admin para recriar este usuário.';
+    }
+
+    return erro.message;
+}
+
 async function fazerLogin(email, senha) {
     if (supabaseClient) {
         const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password: senha });
 
         if (error || !data?.user) {
-            return { sucesso: false, erro: error?.message || 'Email ou senha inválidos' };
+            return { sucesso: false, erro: traduzirErroLoginSupabase(error) };
         }
 
-        const perfil = await obterPerfilPorId(data.user.id);
+        let perfil = await obterPerfilPorId(data.user.id);
+
+        if (!perfil) {
+            const nomeFallback = data.user.user_metadata?.nome || data.user.email?.split('@')[0] || 'Usuário';
+
+            const { error: upsertPerfilErro } = await supabaseClient
+                .from('profiles')
+                .upsert({
+                    id: data.user.id,
+                    nome: nomeFallback,
+                    role: 'corretor'
+                }, { onConflict: 'id' });
+
+            if (!upsertPerfilErro) {
+                perfil = await obterPerfilPorId(data.user.id);
+            }
+        }
 
         usuarioLogado = {
             id: data.user.id,
@@ -1301,7 +1330,7 @@ async function adicionarCliente(dados) {
             .from('leads')
             .insert([payload])
             .select('*')
-            .single();
+            .maybeSingle();
 
         if (error) {
             throw new Error(error.message);

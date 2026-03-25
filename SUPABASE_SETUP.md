@@ -1,109 +1,114 @@
-# Setup da Função RPC para Criar Usuários
+# Setup definitivo (corrigir login de todos os usuários)
 
-## Passo 1: Abra o SQL Editor do Supabase
-1. Vá para https://supabase.com
-2. Entre em seu projeto
-3. Clique em **SQL Editor** no menu esquerdo
-4. Clique em **New query**
+Este arquivo substitui o setup antigo. Nao use mais insercao manual em `auth.users`.
 
-## Passo 2: Execute este SQL para criar a função
-
-Copie e cole todo o código abaixo no SQL Editor:
+## Passo unico: execute todo este SQL no Supabase SQL Editor
 
 ```sql
--- Função RPC para criar usuário (apenas para admin)
-CREATE OR REPLACE FUNCTION public.criar_usuario_novo(
-  p_email TEXT,
-  p_senha TEXT,
-  p_nome TEXT,
-  p_role TEXT DEFAULT 'corretor',
-  p_cpf TEXT DEFAULT NULL,
-  p_data_nascimento TEXT DEFAULT NULL
-)
-RETURNS JSON AS $$
-DECLARE
-  v_user_id UUID;
-  v_response JSON;
-BEGIN
-  -- Criar usuário no auth.users
-  INSERT INTO auth.users (
-    instance_id,
-    id,
-    aud,
-    role,
-    email,
-    encrypted_password,
-    email_confirmed_at,
-    created_at,
-    updated_at,
-    confirmation_token,
-    email_change,
-    email_change_token_new,
-    recovery_token
-  ) VALUES (
-    '00000000-0000-0000-0000-000000000000',
-    gen_random_uuid(),
-    'authenticated',
-    'authenticated',
-    p_email,
-    crypt(p_senha, gen_salt('bf')),
-    NOW(),
-    NOW(),
-    NOW(),
-    '',
-    '',
-    '',
-    ''
+begin;
+
+-- 1) Remover funcao antiga insegura (se existir)
+drop function if exists public.criar_usuario_novo(text, text, text, text, text, text);
+
+-- 2) Limpar usuarios criados pelo SQL antigo (instance_id zerado)
+--    Esses usuarios costumam gerar "database error querying schema" no login.
+delete from public.profiles p
+using auth.users u
+where p.id = u.id
+  and u.instance_id = '00000000-0000-0000-0000-000000000000';
+
+delete from auth.users
+where instance_id = '00000000-0000-0000-0000-000000000000';
+
+-- 3) Garantir coluna de email em profiles
+alter table public.profiles
+add column if not exists email text;
+
+-- 4) Backfill de email para usuarios existentes
+update public.profiles p
+set email = u.email
+from auth.users u
+where u.id = p.id
+  and (p.email is null or p.email = '');
+
+-- 5) Trigger para criar perfil automaticamente ao nascer usuario no auth
+create or replace function public.handle_new_auth_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, nome, role, email, criado_em)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data ->> 'nome', split_part(new.email, '@', 1)),
+    'corretor',
+    new.email,
+    now()
   )
-  RETURNING id INTO v_user_id;
+  on conflict (id) do update
+  set email = excluded.email,
+      nome = coalesce(public.profiles.nome, excluded.nome);
 
-  -- Criar perfil na tabela profiles
-  INSERT INTO public.profiles (
-    id,
-    nome,
-    role,
-    cpf,
-    data_nascimento,
-    criado_em
-  ) VALUES (
-    v_user_id,
-    p_nome,
-    p_role,
-    p_cpf,
-    CASE WHEN p_data_nascimento = '' OR p_data_nascimento IS NULL 
-         THEN NULL 
-         ELSE p_data_nascimento::DATE 
-    END,
-    NOW()
-  );
+  return new;
+end;
+$$;
 
-  v_response := json_build_object(
-    'sucesso', true,
-    'user_id', v_user_id,
-    'email', p_email,
-    'nome', p_nome,
-    'role', p_role
-  );
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+after insert on auth.users
+for each row execute procedure public.handle_new_auth_user();
 
-  RETURN v_response;
+-- 6) RLS + policies minimas para funcionar no CRM
+alter table public.profiles enable row level security;
+alter table public.leads enable row level security;
+alter table public.mensagens_rapidas enable row level security;
 
-EXCEPTION WHEN OTHERS THEN
-  v_response := json_build_object(
-    'sucesso', false,
-    'erro', SQLERRM
-  );
-  RETURN v_response;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+drop policy if exists profiles_select_authenticated on public.profiles;
+drop policy if exists profiles_insert_authenticated on public.profiles;
+drop policy if exists profiles_update_authenticated on public.profiles;
+drop policy if exists leads_all_authenticated on public.leads;
+drop policy if exists mensagens_all_authenticated on public.mensagens_rapidas;
 
--- Dar permissão para usuários autenticados chamarem a função
-GRANT EXECUTE ON FUNCTION public.criar_usuario_novo(TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) TO authenticated;
+create policy profiles_select_authenticated
+on public.profiles
+for select
+to authenticated
+using (true);
+
+create policy profiles_insert_authenticated
+on public.profiles
+for insert
+to authenticated
+with check (true);
+
+create policy profiles_update_authenticated
+on public.profiles
+for update
+to authenticated
+using (true)
+with check (true);
+
+create policy leads_all_authenticated
+on public.leads
+for all
+to authenticated
+using (true)
+with check (true);
+
+create policy mensagens_all_authenticated
+on public.mensagens_rapidas
+for all
+to authenticated
+using (true)
+with check (true);
+
+commit;
 ```
 
-## Passo 3: Clique em "Run" e espere a confirmação
+## Depois do SQL
 
-Se aparecer `Success` (ou sem erro), está pronto!
-
----
-
-**Pronto!** Agora o CRM pode criar usuários automaticamente.
+1. Crie novamente os usuarios que tinham sido criados pelo metodo antigo.
+2. Teste login com cada usuario.
+3. Se o projeto exigir, depois endureca as policies por role (admin/corretor).
