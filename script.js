@@ -605,7 +605,8 @@ function configurarEventosApp() {
                     const { error } = await supabaseClient
                         .from('mensagens_rapidas')
                         .update({ texto })
-                        .eq('id', existente.id);
+                        .eq('id', existente.id)
+                        .eq('criado_por', usuarioLogado.id);
 
                     if (error) {
                         mostrarMensagem('✗ Erro ao atualizar mensagem rápida', 'erro');
@@ -803,7 +804,7 @@ function configurarEventosApp() {
                         const { error: erroDelete } = await supabaseClient
                             .from('leads')
                             .delete()
-                            .gt('id', 0);
+                            .eq('criado_por', usuarioLogado.id);
 
                         if (erroDelete) {
                             mostrarMensagem('✗ Erro ao limpar leads antes da importação', 'erro');
@@ -844,8 +845,8 @@ function configurarEventosApp() {
         if (confirm('⚠️ DELETAR TODOS OS DADOS? (USUÁRIOS E CLIENTES)')) {
             if (supabaseClient) {
                 const [erroLeads, erroMensagens] = await Promise.all([
-                    supabaseClient.from('leads').delete().gt('id', 0),
-                    supabaseClient.from('mensagens_rapidas').delete().gt('id', 0)
+                    supabaseClient.from('leads').delete().eq('criado_por', usuarioLogado.id),
+                    supabaseClient.from('mensagens_rapidas').delete().eq('criado_por', usuarioLogado.id)
                 ]);
 
                 if (erroLeads.error || erroMensagens.error) {
@@ -1029,9 +1030,24 @@ function obterClientes() {
 
 function salvarClientes(clientes) {
     const dados = JSON.parse(localStorage.getItem(DB_KEY));
-    dados.clientes = clientes;
+    dados.clientes = normalizarListaClientesUnicos(clientes);
     localStorage.setItem(DB_KEY, JSON.stringify(dados));
     atualizarEstatisticas();
+}
+
+function normalizarListaClientesUnicos(clientes) {
+    const lista = Array.isArray(clientes) ? clientes : [];
+    const ids = new Set();
+    const unicos = [];
+
+    for (const cliente of lista) {
+        const chave = String(cliente?.id ?? '');
+        if (!chave || ids.has(chave)) continue;
+        ids.add(chave);
+        unicos.push(cliente);
+    }
+
+    return unicos;
 }
 
 async function obterPerfilPorId(userId) {
@@ -1110,11 +1126,12 @@ async function sincronizarDadosNuvem() {
 }
 
 async function baixarLeadsNuvem() {
-    if (!supabaseClient) return;
+    if (!supabaseClient || !usuarioLogado) return;
 
     const { data, error } = await supabaseClient
         .from('leads')
         .select('*')
+        .eq('criado_por', usuarioLogado.id)
         .order('id', { ascending: false });
 
     if (error) {
@@ -1122,7 +1139,7 @@ async function baixarLeadsNuvem() {
         return;
     }
 
-    const clientes = (data || []).map(mapearLeadNuvemParaLocal);
+    const clientes = normalizarListaClientesUnicos((data || []).map(mapearLeadNuvemParaLocal));
     salvarClientes(clientes);
 }
 
@@ -1132,6 +1149,7 @@ async function baixarMensagensRapidasNuvem() {
     const { data, error } = await supabaseClient
         .from('mensagens_rapidas')
         .select('id, nome, texto, criado_em')
+        .eq('criado_por', usuarioLogado.id)
         .order('id', { ascending: false });
 
     if (error) {
@@ -1154,10 +1172,16 @@ async function baixarMensagensRapidasNuvem() {
 async function baixarUsuariosNuvem() {
     if (!supabaseClient) return;
 
-    const { data, error } = await supabaseClient
+    let query = supabaseClient
         .from('profiles')
         .select('*')
         .order('criado_em', { ascending: false });
+
+    if (usuarioLogado?.role !== 'admin') {
+        query = query.eq('id', usuarioLogado?.id);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
         console.error('Erro ao carregar usuários:', error.message);
@@ -1265,7 +1289,8 @@ async function removerMensagemRapidaPorId(idMensagem) {
         const { error } = await supabaseClient
             .from('mensagens_rapidas')
             .delete()
-            .eq('id', idMensagem);
+            .eq('id', idMensagem)
+            .eq('criado_por', usuarioLogado.id);
 
         if (error) {
             mostrarMensagem('✗ Erro ao remover mensagem rápida', 'erro');
@@ -1337,6 +1362,10 @@ async function adicionarCliente(dados) {
         }
 
         const clienteCriado = mapearLeadNuvemParaLocal(data);
+        const indexExistente = clientes.findIndex(c => String(c.id) === String(clienteCriado.id));
+        if (indexExistente !== -1) {
+            clientes.splice(indexExistente, 1);
+        }
         clientes.unshift(clienteCriado);
         salvarClientes(clientes);
         return clienteCriado;
@@ -1388,7 +1417,8 @@ async function atualizarCliente(id, dados) {
             const { error } = await supabaseClient
                 .from('leads')
                 .update(payload)
-                .eq('id', id);
+                .eq('id', id)
+                .eq('criado_por', usuarioLogado.id);
 
             if (error) {
                 throw new Error(error.message);
@@ -1427,7 +1457,8 @@ async function atualizarCocomprador(id, dados) {
             const { error } = await supabaseClient
                 .from('leads')
                 .update(payload)
-                .eq('id', id);
+                .eq('id', id)
+                .eq('criado_por', usuarioLogado.id);
 
             if (error) {
                 throw new Error(error.message);
@@ -1467,7 +1498,8 @@ async function removerCocomprador(id) {
             const { error } = await supabaseClient
                 .from('leads')
                 .update(payload)
-                .eq('id', id);
+                .eq('id', id)
+                .eq('criado_por', usuarioLogado.id);
 
             if (error) {
                 throw new Error(error.message);
@@ -1484,7 +1516,8 @@ async function deletarCliente(id) {
         const { error } = await supabaseClient
             .from('leads')
             .delete()
-            .eq('id', id);
+            .eq('id', id)
+            .eq('criado_por', usuarioLogado.id);
 
         if (error) {
             throw new Error(error.message);

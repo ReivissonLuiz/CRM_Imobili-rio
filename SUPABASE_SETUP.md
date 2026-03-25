@@ -70,6 +70,14 @@ drop policy if exists profiles_insert_authenticated on public.profiles;
 drop policy if exists profiles_update_authenticated on public.profiles;
 drop policy if exists leads_all_authenticated on public.leads;
 drop policy if exists mensagens_all_authenticated on public.mensagens_rapidas;
+drop policy if exists leads_select_own on public.leads;
+drop policy if exists leads_insert_own on public.leads;
+drop policy if exists leads_update_own on public.leads;
+drop policy if exists leads_delete_own on public.leads;
+drop policy if exists mensagens_select_own on public.mensagens_rapidas;
+drop policy if exists mensagens_insert_own on public.mensagens_rapidas;
+drop policy if exists mensagens_update_own on public.mensagens_rapidas;
+drop policy if exists mensagens_delete_own on public.mensagens_rapidas;
 
 create policy profiles_select_authenticated
 on public.profiles
@@ -90,19 +98,55 @@ to authenticated
 using (true)
 with check (true);
 
-create policy leads_all_authenticated
+create policy leads_select_own
 on public.leads
-for all
+for select
 to authenticated
-using (true)
-with check (true);
+using (criado_por = auth.uid());
 
-create policy mensagens_all_authenticated
-on public.mensagens_rapidas
-for all
+create policy leads_insert_own
+on public.leads
+for insert
 to authenticated
-using (true)
-with check (true);
+with check (criado_por = auth.uid());
+
+create policy leads_update_own
+on public.leads
+for update
+to authenticated
+using (criado_por = auth.uid())
+with check (criado_por = auth.uid());
+
+create policy leads_delete_own
+on public.leads
+for delete
+to authenticated
+using (criado_por = auth.uid());
+
+create policy mensagens_select_own
+on public.mensagens_rapidas
+for select
+to authenticated
+using (criado_por = auth.uid());
+
+create policy mensagens_insert_own
+on public.mensagens_rapidas
+for insert
+to authenticated
+with check (criado_por = auth.uid());
+
+create policy mensagens_update_own
+on public.mensagens_rapidas
+for update
+to authenticated
+using (criado_por = auth.uid())
+with check (criado_por = auth.uid());
+
+create policy mensagens_delete_own
+on public.mensagens_rapidas
+for delete
+to authenticated
+using (criado_por = auth.uid());
 
 commit;
 ```
@@ -111,4 +155,4 @@ commit;
 
 1. Crie novamente os usuarios que tinham sido criados pelo metodo antigo.
 2. Teste login com cada usuario.
-3. Se o projeto exigir, depois endureca as policies por role (admin/corretor).
+3. Com as policies acima, cada usuario so acessa os proprios leads e mensagens.
