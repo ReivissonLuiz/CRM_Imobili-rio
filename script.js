@@ -6,6 +6,7 @@ const SUPABASE_URL = 'https://ybnsynahjvqaelzyjvjh.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_xZjizFXxIxFzsOEewU7tgw_ouHQZVVX';
 const ADMIN_EMAILS = ['admin@leads.com'];
 let suportaCamposContatoLeadNuvem = null;
+let suportaTelefoneUsuarioNuvem = null;
 let usuarioLogado = null;
 let supabaseClient = null;
 
@@ -129,6 +130,7 @@ function inicializarBancos() {
             nome: 'Administrador',
             email: 'admin@leads.com',
             cpf: '000.000.000-00',
+            telefone: '',
             dataNascimento: '2000-01-01',
             senha: btoa('admin123'),
             role: 'admin',
@@ -225,7 +227,7 @@ function criarConta(nome, email, cpf, dataNascimento, senha) {
     return { sucesso: true, usuario: novoUsuario };
 }
 
-function criarContaAdmin(nome, email, cpf, dataNascimento, senha, role) {
+function criarContaAdmin(nome, email, cpf, dataNascimento, senha, role, telefone) {
     const usuarios = obterUsuarios();
     
     if (usuarios.find(u => u.email === email)) {
@@ -237,6 +239,7 @@ function criarContaAdmin(nome, email, cpf, dataNascimento, senha, role) {
         nome,
         email,
         cpf,
+        telefone: normalizarTelefone(telefone),
         dataNascimento,
         senha: btoa(senha),
         role: role || 'corretor',
@@ -971,6 +974,7 @@ function configurarEventosApp() {
         const senha = document.getElementById('novo-usr-senha').value;
         const role = document.getElementById('novo-usr-role').value;
         const cpf = normalizarCpf(document.getElementById('novo-usr-cpf').value);
+        const telefone = normalizarTelefone(document.getElementById('novo-usr-telefone').value);
         const dataNascimento = document.getElementById('novo-usr-data').value;
         
         if (!nome || !email || !senha) {
@@ -1004,6 +1008,7 @@ function configurarEventosApp() {
         if (supabaseClient) {
             try {
                 mostrarMensagemUsuarios('Criando usuário...', 'info');
+                await detectarSuporteTelefoneUsuarioNuvem();
 
                 // Usa um cliente isolado para não substituir a sessão do admin logado.
                 const clienteCadastro = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
@@ -1041,6 +1046,7 @@ function configurarEventosApp() {
                         nome,
                         role,
                         cpf: cpf || null,
+                        telefone: suportaTelefoneUsuarioNuvem ? (telefone || null) : undefined,
                         data_nascimento: dataNascimento || null
                     }, { onConflict: 'id' });
 
@@ -1059,6 +1065,17 @@ function configurarEventosApp() {
                     console.warn('Não foi possível salvar email em profiles:', emailSyncErro.message);
                 }
 
+                if (suportaTelefoneUsuarioNuvem) {
+                    const { error: telefoneSyncErro } = await supabaseClient
+                        .from('profiles')
+                        .update({ telefone: telefone || null })
+                        .eq('id', novoUserId);
+
+                    if (telefoneSyncErro) {
+                        console.warn('Não foi possível salvar telefone em profiles:', telefoneSyncErro.message);
+                    }
+                }
+
                 mostrarMensagemUsuarios('✓ Usuário criado com sucesso!', 'sucesso');
                 mostrarToast('Usuário ' + nome + ' criado!');
                 document.getElementById('form-novo-usuario').reset();
@@ -1071,7 +1088,7 @@ function configurarEventosApp() {
         } else {
             // Fallback para localStorage (modo local)
             try {
-                const resultado = criarContaAdmin(nome, email, cpf, dataNascimento, senha, role);
+                const resultado = criarContaAdmin(nome, email, cpf, dataNascimento, senha, role, telefone);
                 if (resultado.sucesso) {
                     mostrarMensagemUsuarios('✓ Usuário criado com sucesso!', 'sucesso');
                     document.getElementById('form-novo-usuario').reset();
@@ -1124,7 +1141,7 @@ function configurarCamposCpf() {
 }
 
 function configurarCamposTelefone() {
-    const idsTelefone = ['telefone', 'modal-telefone'];
+    const idsTelefone = ['telefone', 'modal-telefone', 'novo-usr-telefone', 'modal-usr-telefone'];
 
     idsTelefone.forEach(id => {
         const campo = document.getElementById(id);
@@ -1137,6 +1154,23 @@ function configurarCamposTelefone() {
             campo.value = normalizarTelefone(campo.value);
         });
     });
+}
+
+async function detectarSuporteTelefoneUsuarioNuvem() {
+    if (!supabaseClient || suportaTelefoneUsuarioNuvem !== null) {
+        return;
+    }
+
+    const { error } = await supabaseClient
+        .from('profiles')
+        .select('id, telefone')
+        .limit(1);
+
+    suportaTelefoneUsuarioNuvem = !error;
+
+    if (error) {
+        console.warn('Campo telefone ainda não existe na tabela profiles:', error.message);
+    }
 }
 
 async function detectarSuporteCamposContatoLeadNuvem() {
@@ -1261,6 +1295,7 @@ async function sincronizarDadosNuvem() {
     if (!supabaseClient || !usuarioLogado) return;
 
     await detectarSuporteCamposContatoLeadNuvem();
+    await detectarSuporteTelefoneUsuarioNuvem();
 
     await Promise.all([
         baixarLeadsNuvem(),
@@ -1337,6 +1372,7 @@ async function baixarUsuariosNuvem() {
         nome: item.nome || 'Usuário',
         email: item.email || '-',
         cpf: item.cpf || '',
+        telefone: normalizarTelefone(item.telefone || ''),
         dataNascimento: item.data_nascimento || '',
         role: item.role || 'corretor',
         dataCriacao: item.criado_em ? new Date(item.criado_em).toLocaleString('pt-BR') : '-'
@@ -1908,6 +1944,7 @@ function atualizarListaUsuarios() {
             <h3>${usuario.nome}</h3>
             <p><span class="label">Email:</span> ${usuario.email}</p>
             <p><span class="label">CPF:</span> ${usuario.cpf || '-'}</p>
+            <p><span class="label">Telefone:</span> ${usuario.telefone || '-'}</p>
             <p><span class="label">Permissão:</span> <span class="role-badge ${usuario.role}">${usuario.role === 'admin' ? 'Administrador' : 'Corretor'}</span></p>
             <p><span class="label">Cadastrado:</span> ${usuario.dataCriacao}</p>
             <div class="usuario-actions">
@@ -1923,6 +1960,7 @@ function abrirUsuarioModal(usuarioId) {
 
     document.getElementById('modal-usr-nome').value = usuario.nome;
     document.getElementById('modal-usr-email').value = usuario.email;
+    document.getElementById('modal-usr-telefone').value = usuario.telefone || '';
     document.getElementById('modal-usr-role').value = usuario.role;
     document.getElementById('form-editar-usuario').dataset.usuarioId = usuarioId;
 

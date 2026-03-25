@@ -6,7 +6,9 @@ Execute no SQL Editor do Supabase:
 begin;
 
 -- Perfis
-alter table public.profiles add column if not exists email text;
+alter table public.profiles
+add column if not exists email text,
+add column if not exists telefone text;
 
 -- Contato no lead
 alter table public.leads
