@@ -903,34 +903,66 @@ function configurarEventosApp() {
         if (supabaseClient) {
             try {
                 mostrarMensagemUsuarios('Criando usuário...', 'info');
-                
-                const { data, error } = await supabaseClient.rpc('criar_usuario_novo', {
-                    p_email: email,
-                    p_senha: senha,
-                    p_nome: nome,
-                    p_role: role,
-                    p_cpf: cpf || null,
-                    p_data_nascimento: dataNascimento || null
+
+                // Usa um cliente isolado para não substituir a sessão do admin logado.
+                const clienteCadastro = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+                    auth: {
+                        persistSession: false,
+                        autoRefreshToken: false,
+                        detectSessionInUrl: false
+                    }
                 });
 
-                if (error) {
-                    console.error('Erro RPC:', error);
-                    if (error.message.includes('duplicate')) {
+                const { data: signUpData, error: signUpError } = await clienteCadastro.auth.signUp({
+                    email,
+                    password: senha,
+                    options: {
+                        data: { nome }
+                    }
+                });
+
+                if (signUpError || !signUpData?.user?.id) {
+                    const msg = signUpError?.message || 'Não foi possível criar o usuário no Auth.';
+                    if (/already registered|already exists|duplicate/i.test(msg)) {
                         mostrarMensagemUsuarios('✗ Este email já está cadastrado', 'erro');
                     } else {
-                        mostrarMensagemUsuarios('✗ Erro: ' + error.message, 'erro');
+                        mostrarMensagemUsuarios('✗ Erro ao criar usuário: ' + msg, 'erro');
                     }
                     return;
                 }
 
-                if (data && data.sucesso) {
-                    mostrarMensagemUsuarios('✓ Usuário criado com sucesso!', 'sucesso');
-                    mostrarToast('Usuário ' + nome + ' criado!');
-                    document.getElementById('form-novo-usuario').reset();
-                    setTimeout(() => atualizarListaUsuarios(), 1000);
-                } else {
-                    mostrarMensagemUsuarios('✗ Erro ao criar usuário: ' + (data?.erro || 'desconhecido'), 'erro');
+                const novoUserId = signUpData.user.id;
+
+                const { error: perfilErro } = await supabaseClient
+                    .from('profiles')
+                    .upsert({
+                        id: novoUserId,
+                        nome,
+                        role,
+                        cpf: cpf || null,
+                        data_nascimento: dataNascimento || null
+                    }, { onConflict: 'id' });
+
+                if (perfilErro) {
+                    mostrarMensagemUsuarios('✗ Usuário criado no Auth, mas falhou ao salvar perfil: ' + perfilErro.message, 'erro');
+                    return;
                 }
+
+                // Se a coluna email existir em profiles, sincroniza; se não existir, ignora sem quebrar.
+                const { error: emailSyncErro } = await supabaseClient
+                    .from('profiles')
+                    .update({ email })
+                    .eq('id', novoUserId);
+
+                if (emailSyncErro) {
+                    console.warn('Não foi possível salvar email em profiles:', emailSyncErro.message);
+                }
+
+                mostrarMensagemUsuarios('✓ Usuário criado com sucesso!', 'sucesso');
+                mostrarToast('Usuário ' + nome + ' criado!');
+                document.getElementById('form-novo-usuario').reset();
+                await baixarUsuariosNuvem();
+                atualizarListaUsuarios();
             } catch (erro) {
                 console.error('Erro ao criar usuário:', erro);
                 mostrarMensagemUsuarios('✗ Erro ao criar usuário: ' + erro.message, 'erro');
