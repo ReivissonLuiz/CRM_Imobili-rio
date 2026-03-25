@@ -156,3 +156,46 @@ commit;
 1. Crie novamente os usuarios que tinham sido criados pelo metodo antigo.
 2. Teste login com cada usuario.
 3. Com as policies acima, cada usuario so acessa os proprios leads e mensagens.
+
+## Recuperacao rapida (se perdeu admin ou sumiram leads antigos)
+
+Rode os comandos abaixo trocando `SEU_EMAIL_AQUI` pelo email da sua conta.
+
+```sql
+-- 1) Descobrir seu user id (UUID)
+select id, email
+from auth.users
+where lower(email) = lower('SEU_EMAIL_AQUI');
+
+-- 2) Restaurar cargo admin para sua conta
+update public.profiles p
+set role = 'admin'
+from auth.users u
+where p.id = u.id
+  and lower(u.email) = lower('SEU_EMAIL_AQUI');
+
+-- 3) Vincular leads antigos sem dono para sua conta
+update public.leads l
+set criado_por = u.id
+from auth.users u
+where lower(u.email) = lower('SEU_EMAIL_AQUI')
+  and l.criado_por is null;
+
+-- 4) Se necessario, vincular mensagens antigas sem dono para sua conta
+update public.mensagens_rapidas m
+set criado_por = u.id
+from auth.users u
+where lower(u.email) = lower('SEU_EMAIL_AQUI')
+  and m.criado_por is null;
+```
+
+Se os leads antigos estiverem com `criado_por` de outro usuario, troque com cuidado:
+
+```sql
+update public.leads l
+set criado_por = destino.id
+from auth.users origem, auth.users destino
+where origem.email = 'EMAIL_ANTIGO_OU_ERRADO'
+  and destino.email = 'SEU_EMAIL_AQUI'
+  and l.criado_por = origem.id;
+```

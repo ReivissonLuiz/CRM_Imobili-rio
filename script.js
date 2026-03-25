@@ -4,6 +4,7 @@ const USERS_KEY = 'usuarios_db';
 const WA_RAPIDAS_KEY = 'whatsapp_rapidas_por_usuario';
 const SUPABASE_URL = 'https://ybnsynahjvqaelzyjvjh.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_xZjizFXxIxFzsOEewU7tgw_ouHQZVVX';
+const ADMIN_EMAILS = ['admin@leads.com'];
 let usuarioLogado = null;
 let supabaseClient = null;
 
@@ -155,13 +156,13 @@ async function verificarAutenticacao() {
         const { data, error } = await supabaseClient.auth.getSession();
         if (!error && data?.session?.user) {
             const usuario = data.session.user;
-            const perfil = await obterPerfilPorId(usuario.id);
+            const perfil = await garantirPerfilConsistenteSupabase(usuario);
 
             usuarioLogado = {
                 id: usuario.id,
                 nome: perfil?.nome || usuario.email?.split('@')[0] || 'Usuário',
                 email: usuario.email,
-                role: perfil?.role || 'corretor'
+                role: perfil?.role || rolePadraoPorEmail(usuario.email)
             };
 
             sessionStorage.setItem('usuarioLogado', JSON.stringify(usuarioLogado));
@@ -247,6 +248,49 @@ function criarContaAdmin(nome, email, cpf, dataNascimento, senha, role) {
     return { sucesso: true, usuario: novoUsuario };
 }
 
+function ehEmailAdminPadrao(email) {
+    const emailNormalizado = String(email || '').trim().toLowerCase();
+    return ADMIN_EMAILS.includes(emailNormalizado);
+}
+
+function rolePadraoPorEmail(email) {
+    return ehEmailAdminPadrao(email) ? 'admin' : 'corretor';
+}
+
+async function garantirPerfilConsistenteSupabase(user) {
+    if (!supabaseClient || !user?.id) return null;
+
+    let perfil = await obterPerfilPorId(user.id);
+    const roleDesejado = rolePadraoPorEmail(user.email);
+    const nomeFallback = user.user_metadata?.nome || user.email?.split('@')[0] || 'Usuário';
+
+    if (!perfil) {
+        const { error: upsertPerfilErro } = await supabaseClient
+            .from('profiles')
+            .upsert({
+                id: user.id,
+                nome: nomeFallback,
+                role: roleDesejado,
+                email: user.email || null
+            }, { onConflict: 'id' });
+
+        if (!upsertPerfilErro) {
+            perfil = await obterPerfilPorId(user.id);
+        }
+    } else if (roleDesejado === 'admin' && perfil.role !== 'admin') {
+        const { error: updateRoleErro } = await supabaseClient
+            .from('profiles')
+            .update({ role: 'admin' })
+            .eq('id', user.id);
+
+        if (!updateRoleErro) {
+            perfil = { ...perfil, role: 'admin' };
+        }
+    }
+
+    return perfil;
+}
+
 function traduzirErroLoginSupabase(erro) {
     const msg = (erro?.message || '').toLowerCase();
 
@@ -268,29 +312,13 @@ async function fazerLogin(email, senha) {
             return { sucesso: false, erro: traduzirErroLoginSupabase(error) };
         }
 
-        let perfil = await obterPerfilPorId(data.user.id);
-
-        if (!perfil) {
-            const nomeFallback = data.user.user_metadata?.nome || data.user.email?.split('@')[0] || 'Usuário';
-
-            const { error: upsertPerfilErro } = await supabaseClient
-                .from('profiles')
-                .upsert({
-                    id: data.user.id,
-                    nome: nomeFallback,
-                    role: 'corretor'
-                }, { onConflict: 'id' });
-
-            if (!upsertPerfilErro) {
-                perfil = await obterPerfilPorId(data.user.id);
-            }
-        }
+        const perfil = await garantirPerfilConsistenteSupabase(data.user);
 
         usuarioLogado = {
             id: data.user.id,
             nome: perfil?.nome || data.user.email?.split('@')[0] || 'Usuário',
             email: data.user.email,
-            role: perfil?.role || 'corretor'
+            role: perfil?.role || rolePadraoPorEmail(data.user.email)
         };
 
         sessionStorage.setItem('usuarioLogado', JSON.stringify(usuarioLogado));
