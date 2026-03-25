@@ -512,6 +512,8 @@ function configurarEventosLogin() {
 }
 
 function configurarEventosApp() {
+    configurarCamposCpf();
+
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const tabName = btn.getAttribute('data-tab');
@@ -535,7 +537,7 @@ function configurarEventosApp() {
         e.preventDefault();
         const dados = {
             nome: document.getElementById('nome').value,
-            cpf: document.getElementById('cpf').value,
+            cpf: normalizarCpf(document.getElementById('cpf').value),
             profissao: document.getElementById('profissao').value,
             renda: document.getElementById('renda').value,
             dependentes: document.getElementById('dependentes').value,
@@ -544,11 +546,21 @@ function configurarEventosApp() {
             entrada: document.getElementById('entrada').value,
             temCocomprador: document.getElementById('tem-cocomprador').checked,
             cocompradorNome: document.getElementById('cc-nome') ? document.getElementById('cc-nome').value : '',
-            cocompradorCpf: document.getElementById('cc-cpf') ? document.getElementById('cc-cpf').value : '',
+            cocompradorCpf: document.getElementById('cc-cpf') ? normalizarCpf(document.getElementById('cc-cpf').value) : '',
             cocompradorProfissao: document.getElementById('cc-profissao') ? document.getElementById('cc-profissao').value : '',
             cocompradorRenda: document.getElementById('cc-renda') ? document.getElementById('cc-renda').value : '',
             anotacoes: document.getElementById('anotacoes').value
         };
+
+        if (cpfPreenchidoInvalido(dados.cpf)) {
+            mostrarMensagem('✗ CPF do lead deve ter exatamente 11 números', 'erro');
+            return;
+        }
+
+        if (cpfPreenchidoInvalido(dados.cocompradorCpf)) {
+            mostrarMensagem('✗ CPF do co-comprador deve ter exatamente 11 números', 'erro');
+            return;
+        }
 
         try {
             await adicionarCliente(dados);
@@ -710,7 +722,7 @@ function configurarEventosApp() {
         const clienteId = document.getElementById('form-editar').dataset.clienteId;
         const dados = {
             nome: document.getElementById('modal-nome').value,
-            cpf: document.getElementById('modal-cpf').value,
+            cpf: normalizarCpf(document.getElementById('modal-cpf').value),
             profissao: document.getElementById('modal-profissao').value,
             renda: document.getElementById('modal-renda').value,
             dependentes: document.getElementById('modal-dependentes').value,
@@ -721,6 +733,11 @@ function configurarEventosApp() {
             etapaFunil: document.getElementById('modal-etapa-funil').value,
             anotacao: document.getElementById('modal-anotacao-nova').value
         };
+
+        if (cpfPreenchidoInvalido(dados.cpf)) {
+            mostrarMensagem('✗ CPF do lead deve ter exatamente 11 números', 'erro');
+            return;
+        }
 
         try {
             await atualizarCliente(clienteId, dados);
@@ -750,10 +767,15 @@ function configurarEventosApp() {
         const clienteId = document.getElementById('form-cocomprador').dataset.clienteId;
         const dados = {
             nome: document.getElementById('modal-cc-nome').value,
-            cpf: document.getElementById('modal-cc-cpf').value,
+            cpf: normalizarCpf(document.getElementById('modal-cc-cpf').value),
             profissao: document.getElementById('modal-cc-profissao').value,
             renda: document.getElementById('modal-cc-renda').value
         };
+
+        if (cpfPreenchidoInvalido(dados.cpf)) {
+            mostrarMensagem('✗ CPF do co-comprador deve ter exatamente 11 números', 'erro');
+            return;
+        }
 
         try {
             await atualizarCocomprador(clienteId, dados);
@@ -932,7 +954,7 @@ function configurarEventosApp() {
         const email = document.getElementById('novo-usr-email').value.trim();
         const senha = document.getElementById('novo-usr-senha').value;
         const role = document.getElementById('novo-usr-role').value;
-        const cpf = document.getElementById('novo-usr-cpf').value.trim();
+        const cpf = normalizarCpf(document.getElementById('novo-usr-cpf').value);
         const dataNascimento = document.getElementById('novo-usr-data').value;
         
         if (!nome || !email || !senha) {
@@ -955,6 +977,11 @@ function configurarEventosApp() {
         // Validar senha (mínimo 6 caracteres)
         if (senha.length < 6) {
             mostrarMensagemUsuarios('✗ Senha deve ter no mínimo 6 caracteres', 'erro');
+            return;
+        }
+
+        if (cpfPreenchidoInvalido(cpf)) {
+            mostrarMensagemUsuarios('✗ CPF deve ter exatamente 11 números', 'erro');
             return;
         }
 
@@ -1049,6 +1076,31 @@ function inicializarBD() {
     if (!localStorage.getItem(DB_KEY)) {
         localStorage.setItem(DB_KEY, JSON.stringify({ clientes: [] }));
     }
+}
+
+function normalizarCpf(valor) {
+    return String(valor || '').replace(/\D/g, '').slice(0, 11);
+}
+
+function cpfPreenchidoInvalido(cpf) {
+    const somenteNumeros = normalizarCpf(cpf);
+    return somenteNumeros !== '' && somenteNumeros.length !== 11;
+}
+
+function configurarCamposCpf() {
+    const idsCpf = ['cpf', 'cc-cpf', 'novo-usr-cpf', 'modal-cpf', 'modal-cc-cpf'];
+
+    idsCpf.forEach(id => {
+        const campo = document.getElementById(id);
+        if (!campo) return;
+
+        campo.setAttribute('inputmode', 'numeric');
+        campo.setAttribute('maxlength', '11');
+
+        campo.addEventListener('input', () => {
+            campo.value = normalizarCpf(campo.value);
+        });
+    });
 }
 
 function obterClientes() {
