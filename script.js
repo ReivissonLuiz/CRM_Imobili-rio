@@ -5,6 +5,7 @@ const WA_RAPIDAS_KEY = 'whatsapp_rapidas_por_usuario';
 const SUPABASE_URL = 'https://ybnsynahjvqaelzyjvjh.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_xZjizFXxIxFzsOEewU7tgw_ouHQZVVX';
 const ADMIN_EMAILS = ['admin@leads.com'];
+let suportaCamposContatoLeadNuvem = null;
 let usuarioLogado = null;
 let supabaseClient = null;
 
@@ -513,6 +514,7 @@ function configurarEventosLogin() {
 
 function configurarEventosApp() {
     configurarCamposCpf();
+    configurarCamposTelefone();
 
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -538,6 +540,8 @@ function configurarEventosApp() {
         const dados = {
             nome: document.getElementById('nome').value,
             cpf: normalizarCpf(document.getElementById('cpf').value),
+            email: (document.getElementById('email').value || '').trim(),
+            telefone: normalizarTelefone(document.getElementById('telefone').value),
             profissao: document.getElementById('profissao').value,
             renda: document.getElementById('renda').value,
             dependentes: document.getElementById('dependentes').value,
@@ -559,6 +563,11 @@ function configurarEventosApp() {
 
         if (cpfPreenchidoInvalido(dados.cocompradorCpf)) {
             mostrarMensagem('✗ CPF do co-comprador deve ter exatamente 11 números', 'erro');
+            return;
+        }
+
+        if (dados.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dados.email)) {
+            mostrarMensagem('✗ Email do lead inválido', 'erro');
             return;
         }
 
@@ -723,6 +732,8 @@ function configurarEventosApp() {
         const dados = {
             nome: document.getElementById('modal-nome').value,
             cpf: normalizarCpf(document.getElementById('modal-cpf').value),
+            email: (document.getElementById('modal-email').value || '').trim(),
+            telefone: normalizarTelefone(document.getElementById('modal-telefone').value),
             profissao: document.getElementById('modal-profissao').value,
             renda: document.getElementById('modal-renda').value,
             dependentes: document.getElementById('modal-dependentes').value,
@@ -736,6 +747,11 @@ function configurarEventosApp() {
 
         if (cpfPreenchidoInvalido(dados.cpf)) {
             mostrarMensagem('✗ CPF do lead deve ter exatamente 11 números', 'erro');
+            return;
+        }
+
+        if (dados.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dados.email)) {
+            mostrarMensagem('✗ Email do lead inválido', 'erro');
             return;
         }
 
@@ -1082,6 +1098,10 @@ function normalizarCpf(valor) {
     return String(valor || '').replace(/\D/g, '').slice(0, 11);
 }
 
+function normalizarTelefone(valor) {
+    return String(valor || '').replace(/\D/g, '').slice(0, 15);
+}
+
 function cpfPreenchidoInvalido(cpf) {
     const somenteNumeros = normalizarCpf(cpf);
     return somenteNumeros !== '' && somenteNumeros.length !== 11;
@@ -1101,6 +1121,39 @@ function configurarCamposCpf() {
             campo.value = normalizarCpf(campo.value);
         });
     });
+}
+
+function configurarCamposTelefone() {
+    const idsTelefone = ['telefone', 'modal-telefone'];
+
+    idsTelefone.forEach(id => {
+        const campo = document.getElementById(id);
+        if (!campo) return;
+
+        campo.setAttribute('inputmode', 'numeric');
+        campo.setAttribute('maxlength', '15');
+
+        campo.addEventListener('input', () => {
+            campo.value = normalizarTelefone(campo.value);
+        });
+    });
+}
+
+async function detectarSuporteCamposContatoLeadNuvem() {
+    if (!supabaseClient || suportaCamposContatoLeadNuvem !== null) {
+        return;
+    }
+
+    const { error } = await supabaseClient
+        .from('leads')
+        .select('id, email, telefone')
+        .limit(1);
+
+    suportaCamposContatoLeadNuvem = !error;
+
+    if (error) {
+        console.warn('Campos email/telefone ainda não existem na tabela leads:', error.message);
+    }
 }
 
 function obterClientes() {
@@ -1159,6 +1212,8 @@ function mapearLeadNuvemParaLocal(lead) {
         id: lead.id,
         nome: lead.nome || '',
         cpf: lead.cpf || '',
+        email: lead.email || '',
+        telefone: normalizarTelefone(lead.telefone || ''),
         profissao: lead.profissao || '',
         renda: Number(lead.renda || 0),
         dependentes: Number(lead.dependentes || 0),
@@ -1175,7 +1230,7 @@ function mapearLeadNuvemParaLocal(lead) {
 }
 
 function mapearLeadLocalParaNuvem(lead) {
-    return {
+    const payload = {
         nome: lead.nome,
         cpf: lead.cpf || null,
         profissao: lead.profissao || null,
@@ -1193,10 +1248,19 @@ function mapearLeadLocalParaNuvem(lead) {
         anotacoes: Array.isArray(lead.anotacoes) ? lead.anotacoes : [],
         criado_por: usuarioLogado?.id || null
     };
+
+    if (suportaCamposContatoLeadNuvem) {
+        payload.email = lead.email || null;
+        payload.telefone = normalizarTelefone(lead.telefone || '') || null;
+    }
+
+    return payload;
 }
 
 async function sincronizarDadosNuvem() {
     if (!supabaseClient || !usuarioLogado) return;
+
+    await detectarSuporteCamposContatoLeadNuvem();
 
     await Promise.all([
         baixarLeadsNuvem(),
@@ -1410,6 +1474,8 @@ async function adicionarCliente(dados) {
         id: Date.now(),
         nome: dados.nome.trim(),
         cpf: dados.cpf.trim(),
+        email: (dados.email || '').trim(),
+        telefone: normalizarTelefone(dados.telefone),
         profissao: dados.profissao.trim(),
         renda: parseFloat(dados.renda) || 0,
         dependentes: parseInt(dados.dependentes) || 0,
@@ -1468,6 +1534,8 @@ async function atualizarCliente(id, dados) {
     if (index !== -1) {
         clientes[index].nome = dados.nome.trim();
         clientes[index].cpf = dados.cpf.trim();
+        clientes[index].email = (dados.email || '').trim();
+        clientes[index].telefone = normalizarTelefone(dados.telefone);
         clientes[index].profissao = dados.profissao.trim();
         clientes[index].renda = parseFloat(dados.renda) || 0;
         clientes[index].dependentes = parseInt(dados.dependentes) || 0;
@@ -1638,6 +1706,8 @@ function atualizarListaClientes() {
         <div class="cliente-card" onclick="abrirClienteModal(${cliente.id})">
             <h3>${cliente.nome}${ccIndicador}</h3>
             <p><span class="label">CPF:</span> ${cliente.cpf || '-'}</p>
+            <p><span class="label">Email:</span> ${cliente.email || '-'}</p>
+            <p><span class="label">Telefone:</span> ${cliente.telefone || '-'}</p>
             <p><span class="label">Profissão:</span> ${cliente.profissao || '-'}</p>
             <p><span class="label">Renda:</span> R$ ${cliente.renda.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
             <p><span class="label">Região:</span> ${cliente.regiao || '-'}</p>
@@ -1660,6 +1730,8 @@ function abrirClienteModal(id) {
 
     document.getElementById('modal-nome').value = cliente.nome;
     document.getElementById('modal-cpf').value = cliente.cpf;
+    document.getElementById('modal-email').value = cliente.email || '';
+    document.getElementById('modal-telefone').value = cliente.telefone || '';
     document.getElementById('modal-profissao').value = cliente.profissao;
     document.getElementById('modal-renda').value = cliente.renda;
     document.getElementById('modal-dependentes').value = cliente.dependentes;
