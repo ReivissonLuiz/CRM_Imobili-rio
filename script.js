@@ -1222,7 +1222,7 @@ async function obterPerfilPorId(userId) {
 
     const { data, error } = await supabaseClient
         .from('profiles')
-        .select('id, nome, role, cpf, data_nascimento, criado_em')
+        .select('id, nome, role')
         .eq('id', userId)
         .maybeSingle();
 
